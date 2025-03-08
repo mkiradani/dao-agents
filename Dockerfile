@@ -1,27 +1,42 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files for dependency installation
+# Copy package files
 COPY package.json package-lock.json ./
 
-# Install all dependencies (including dev dependencies)
+# Install dependencies
 RUN npm ci
 
-# Copy source code and configuration files
-COPY tsconfig.json ./
-COPY src ./src
-COPY .env* ./
+# Copy source code
+COPY . .
 
-# Set NODE_ENV to development since the app works in dev mode
-ENV NODE_ENV=development
-
-# Install mastra CLI globally for the dev command
+# Build the application
 RUN npm install -g mastra
+RUN mastra build
 
-# Expose the Mastra application port
-EXPOSE 4111
+# Production stage
+FROM node:20-alpine AS production
 
-# Command to run the application in dev mode
-CMD ["npm", "run", "dev"]
+# Set working directory
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder /app/.mastra ./.mastra
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json ./package-lock.json
+
+# Install only production dependencies
+RUN npm ci --omit=dev
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+
+# Expose the port
+EXPOSE 3000
+
+# Start the server
+CMD ["node", ".mastra/index.js"]
